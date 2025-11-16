@@ -13,7 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 from api.services import PassengerService, RideService, geocode_address
 from ..dictionary import translations
 from ..states import PICKUP_ADDRESS, DESTINATION_ADDRESS, CONFIRM_RIDE, WAITING_DRIVER, RATING, MAIN_MENU
-from ..menu import main_menu, confirmation_menu, rating_menu, location_request_menu
+from ..menu import main_menu, confirmation_menu, rating_menu
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,16 +30,10 @@ def start_ride_order(update: Update, context: CallbackContext) -> int:
         update.message.reply_text(translations['please_register_first'][language])
         return ConversationHandler.END
 
-    # Ask for pickup location
-    keyboard = [[KeyboardButton(
-        translations['buttons']['send_location'][language],
-        request_location=True
-    )]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-
+    # Ask for pickup address (text only, no location button)
     update.message.reply_text(
-        translations['enter_pickup'][language],
-        reply_markup=reply_markup
+        translations['enter_pickup_address'][language],
+        reply_markup=ReplyKeyboardRemove()
     )
 
     # Clear any previous ride data
@@ -95,17 +89,11 @@ def handle_pickup_location(update: Update, context: CallbackContext) -> int:
         update.message.reply_text(translations['invalid_pickup'][language])
         return PICKUP_ADDRESS
 
-    # Ask for destination
-    keyboard = [[KeyboardButton(
-        translations['buttons']['send_location'][language],
-        request_location=True
-    )]]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-
+    # Ask for destination (text only, no location button)
     print(f"[PASSENGER_LOG] {telegram_id} asking for destination, returning DESTINATION_ADDRESS")
     update.message.reply_text(
         translations['enter_destination'][language],
-        reply_markup=reply_markup
+        reply_markup=ReplyKeyboardRemove()
     )
 
     return DESTINATION_ADDRESS
@@ -191,7 +179,8 @@ def handle_destination_location(update: Update, context: CallbackContext) -> int
     if not ride:
         print(f"[PASSENGER_LOG] {telegram_id} ERROR: Ride creation failed")
         update.message.reply_text(translations['error_occurred'][language])
-        return ConversationHandler.END
+        main_menu(update, context)
+        return MAIN_MENU
 
     # Store ride ID
     ride_id_str = str(ride.id)
@@ -237,7 +226,8 @@ def handle_ride_confirmation(update: Update, context: CallbackContext) -> int:
         if not ride_id:
             print(f"[PASSENGER_LOG] {telegram_id} ERROR: No ride_id found in context.user_data")
             update.message.reply_text(translations['error_occurred'][language])
-            return ConversationHandler.END
+            main_menu(update, context)
+            return MAIN_MENU
 
         print(f"[PASSENGER_LOG] {telegram_id} ride confirmed successfully, showing waiting buttons")
 
@@ -276,9 +266,13 @@ def handle_ride_confirmation(update: Update, context: CallbackContext) -> int:
             translations['ride_cancelled'][language],
             reply_markup=ReplyKeyboardRemove()
         )
+        
+        # Clear ride data
+        context.user_data.pop('ride_id', None)
+        context.user_data.pop('ride_data', None)
 
         main_menu(update, context)
-        return ConversationHandler.END
+        return MAIN_MENU
     else:
         print(f"[PASSENGER_LOG] {telegram_id} invalid input in CONFIRM_RIDE, showing error message")
         update.message.reply_text(translations['choose_confirm_cancel'][language])
@@ -294,7 +288,27 @@ def handle_waiting_driver(update: Update, context: CallbackContext) -> int:
 
     print(f"[PASSENGER_LOG] {telegram_id} in WAITING_DRIVER state, input: '{user_response}', ride_id: {ride_id}")
 
-    if user_response == translations['buttons']['cancel_ride'][language]:
+    # Check if user wants to start a new order
+    if user_response == translations['buttons']['new_order'][language]:
+        print(f"[PASSENGER_LOG] {telegram_id} user pressed 'New order' in WAITING_DRIVER state")
+        # Cancel current ride if exists
+        if ride_id:
+            try:
+                print(f"[PASSENGER_LOG] {telegram_id} cancelling current ride: {ride_id}")
+                RideService.cancel_ride(ride_id, telegram_id, "Cancelled - new order started")
+            except Exception as e:
+                print(f"[PASSENGER_LOG] {telegram_id} error cancelling ride: {e}")
+        
+        # Clear ride data
+        context.user_data.pop('ride_id', None)
+        context.user_data.pop('ride_data', None)
+        print(f"[PASSENGER_LOG] {telegram_id} cleared ride data, starting new order")
+        
+        # Start new order
+        from bot_service.passenger.handler.menu_handler import handle_new_order
+        return handle_new_order(update, context)
+
+    elif user_response == translations['buttons']['cancel_ride'][language]:
         # Cancel the ride
         if ride_id:
             success, ride = RideService.cancel_ride(ride_id, telegram_id, "Cancelled by passenger")
@@ -305,9 +319,13 @@ def handle_waiting_driver(update: Update, context: CallbackContext) -> int:
                 )
             else:
                 update.message.reply_text(translations['cancel_failed'][language])
+        
+        # Clear ride data
+        context.user_data.pop('ride_id', None)
+        context.user_data.pop('ride_data', None)
 
         main_menu(update, context)
-        return ConversationHandler.END
+        return MAIN_MENU
 
     elif user_response == translations['buttons']['increase_cost'][language]:
         # Increase ride cost (only if driver not yet assigned)
@@ -347,9 +365,18 @@ def handle_waiting_driver(update: Update, context: CallbackContext) -> int:
         logger.warning(f"SOS activated by passenger {telegram_id} - help on the road")
 
         main_menu(update, context)
-        return ConversationHandler.END
+        return MAIN_MENU
+    
+    # Handle other main menu buttons
+    elif user_response in [
+        translations['buttons']['history'][language],
+        translations['buttons']['settings'][language],
+        translations['buttons']['support'][language]
+    ]:
+        from bot_service.passenger.handler.menu_handler import handle_main_menu
+        return handle_main_menu(update, context)
 
-    # Check if driver was assigned (this would be called by webhook/callback)
+    # Unknown input - stay in WAITING_DRIVER state
     return WAITING_DRIVER
 
 
@@ -402,8 +429,31 @@ def ride_completed_notification(update: Update, context: CallbackContext, ride_i
     return RATING
 
 
+def handle_rating_text(update: Update, context: CallbackContext) -> int:
+    """Handle text messages while in RATING state (allow user to skip rating and go to main menu)"""
+    language = context.user_data.get('language', 'kaz')
+    user_input = update.message.text.strip()
+    
+    # If user presses "New order" or any main menu button, return to main menu
+    if user_input == translations['buttons']['new_order'][language]:
+        from bot_service.passenger.handler.menu_handler import handle_new_order
+        return handle_new_order(update, context)
+    elif user_input in [
+        translations['buttons']['history'][language],
+        translations['buttons']['settings'][language],
+        translations['buttons']['support'][language]
+    ]:
+        from bot_service.passenger.handler.menu_handler import handle_main_menu
+        return handle_main_menu(update, context)
+    else:
+        # Unknown input, show main menu
+        from bot_service.passenger.menu import main_menu
+        main_menu(update, context)
+        return MAIN_MENU
+
+
 def handle_rating(update: Update, context: CallbackContext) -> int:
-    """Handle driver rating"""
+    """Handle driver rating via callback query"""
     language = context.user_data.get('language', 'kaz')
     query = update.callback_query
     telegram_id = str(update.effective_user.id)
@@ -436,7 +486,7 @@ def handle_rating(update: Update, context: CallbackContext) -> int:
                     text=translations['thank_you_rating'][language]
                 )
                 
-                # Create main menu buttons
+                # Create and send main menu buttons
                 keyboard = [
                     [KeyboardButton(translations['buttons']['new_order'][language])],
                     [KeyboardButton(translations['buttons']['history'][language])],
@@ -445,17 +495,53 @@ def handle_rating(update: Update, context: CallbackContext) -> int:
                 ]
                 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
                 
-                # Send main menu
                 context.bot.send_message(
                     chat_id=query.message.chat_id,
                     text=translations['main_menu'][language],
                     reply_markup=reply_markup
                 )
+                
+                # Clear ride_id from context
+                context.user_data.pop('ride_id', None)
+                
+                return MAIN_MENU
             else:
                 query.edit_message_text(translations['rating_failed'][language])
+                # Return to main menu even on failure
+                from telegram import ReplyKeyboardMarkup, KeyboardButton
+                keyboard = [
+                    [KeyboardButton(translations['buttons']['new_order'][language])],
+                    [KeyboardButton(translations['buttons']['history'][language])],
+                    [KeyboardButton(translations['buttons']['settings'][language]),
+                     KeyboardButton(translations['buttons']['support'][language])]
+                ]
+                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=translations['main_menu'][language],
+                    reply_markup=reply_markup
+                )
+                context.user_data.pop('ride_id', None)
+                return MAIN_MENU
 
         except (ValueError, IndexError) as e:
             query.edit_message_text(translations['rating_failed'][language])
+            # Return to main menu on error
+            from telegram import ReplyKeyboardMarkup, KeyboardButton
+            keyboard = [
+                [KeyboardButton(translations['buttons']['new_order'][language])],
+                [KeyboardButton(translations['buttons']['history'][language])],
+                [KeyboardButton(translations['buttons']['settings'][language]),
+                 KeyboardButton(translations['buttons']['support'][language])]
+            ]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=translations['main_menu'][language],
+                reply_markup=reply_markup
+            )
+            context.user_data.pop('ride_id', None)
+            return MAIN_MENU
     else:
         # Handle old format: rate_X (for backward compatibility)
         if len(rating_data) == 2 and rating_data[0] == 'rate':
@@ -487,22 +573,91 @@ def handle_rating(update: Update, context: CallbackContext) -> int:
                         ]
                         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
                         
-                        # Send main menu
                         context.bot.send_message(
                             chat_id=query.message.chat_id,
                             text=translations['main_menu'][language],
                             reply_markup=reply_markup
                         )
+                        
+                        # Clear ride_id from context
+                        context.user_data.pop('ride_id', None)
+                        
+                        return MAIN_MENU
                     else:
                         query.edit_message_text(translations['rating_failed'][language])
+                        # Return to main menu
+                        from telegram import ReplyKeyboardMarkup, KeyboardButton
+                        keyboard = [
+                            [KeyboardButton(translations['buttons']['new_order'][language])],
+                            [KeyboardButton(translations['buttons']['history'][language])],
+                            [KeyboardButton(translations['buttons']['settings'][language]),
+                             KeyboardButton(translations['buttons']['support'][language])]
+                        ]
+                        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                        context.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=translations['main_menu'][language],
+                            reply_markup=reply_markup
+                        )
+                        context.user_data.pop('ride_id', None)
+                        return MAIN_MENU
                 else:
                     query.edit_message_text(translations['rating_failed'][language])
+                    # Return to main menu
+                    from telegram import ReplyKeyboardMarkup, KeyboardButton
+                    keyboard = [
+                        [KeyboardButton(translations['buttons']['new_order'][language])],
+                        [KeyboardButton(translations['buttons']['history'][language])],
+                        [KeyboardButton(translations['buttons']['settings'][language]),
+                         KeyboardButton(translations['buttons']['support'][language])]
+                    ]
+                    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                    context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=translations['main_menu'][language],
+                        reply_markup=reply_markup
+                    )
+                    context.user_data.pop('ride_id', None)
+                    return MAIN_MENU
 
             except (ValueError, IndexError) as e:
                 query.edit_message_text(translations['rating_failed'][language])
+                # Return to main menu on error
+                from telegram import ReplyKeyboardMarkup, KeyboardButton
+                keyboard = [
+                    [KeyboardButton(translations['buttons']['new_order'][language])],
+                    [KeyboardButton(translations['buttons']['history'][language])],
+                    [KeyboardButton(translations['buttons']['settings'][language]),
+                     KeyboardButton(translations['buttons']['support'][language])]
+                ]
+                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=translations['main_menu'][language],
+                    reply_markup=reply_markup
+                )
+                context.user_data.pop('ride_id', None)
+                return MAIN_MENU
         else:
             query.edit_message_text(translations['rating_failed'][language])
+            # Return to main menu
+            from telegram import ReplyKeyboardMarkup, KeyboardButton
+            keyboard = [
+                [KeyboardButton(translations['buttons']['new_order'][language])],
+                [KeyboardButton(translations['buttons']['history'][language])],
+                [KeyboardButton(translations['buttons']['settings'][language]),
+                 KeyboardButton(translations['buttons']['support'][language])]
+            ]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=translations['main_menu'][language],
+                reply_markup=reply_markup
+            )
+            context.user_data.pop('ride_id', None)
+            return MAIN_MENU
 
+    # If no callback query, return to main menu
     return MAIN_MENU
 
 

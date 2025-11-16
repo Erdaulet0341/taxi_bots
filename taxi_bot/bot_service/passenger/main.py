@@ -12,7 +12,7 @@ from bot_service.passenger.handler.registration import (
 from bot_service.passenger.handler.menu_handler import (
     handle_main_menu, handle_pickup_address, handle_location_update
 )
-from bot_service.passenger.handler.ride import handle_destination_location, handle_ride_confirmation, handle_waiting_driver
+from bot_service.passenger.handler.ride import handle_destination_location, handle_ride_confirmation, handle_waiting_driver, handle_rating_text
 
 from bot_service.passenger.states import *
 
@@ -76,6 +76,9 @@ def main() -> None:
             ],
             WAITING_DRIVER: [
                 MessageHandler(Filters.text & ~Filters.command, handle_waiting_driver)
+            ],
+            RATING: [
+                MessageHandler(Filters.text & ~Filters.command, handle_rating_text)
             ]
         },
         fallbacks=[

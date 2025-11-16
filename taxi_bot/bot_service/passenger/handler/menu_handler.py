@@ -7,7 +7,7 @@ from telegram.ext import CallbackContext
 
 from api.services import PassengerService
 from bot_service.passenger.dictionary import translations
-from bot_service.passenger.menu import main_menu, location_request_menu, confirmation_menu
+from bot_service.passenger.menu import main_menu, confirmation_menu
 from bot_service.passenger.states import (MAIN_MENU, PICKUP_ADDRESS, LOCATION_UPDATE,
     DESTINATION_ADDRESS, CONFIRM_RIDE)
 
@@ -128,7 +128,10 @@ def handle_support(update: Update, context: CallbackContext) -> int:
 
 def handle_pickup_address(update: Update, context: CallbackContext) -> int:
     """Handle pickup address input"""
+    from api.services import geocode_address
+    
     language = context.user_data.get('language', 'kaz')
+    telegram_id = str(update.effective_user.id)
     pickup_address = update.message.text.strip()
 
     if len(pickup_address) < 5:
@@ -138,45 +141,73 @@ def handle_pickup_address(update: Update, context: CallbackContext) -> int:
         )
         return PICKUP_ADDRESS
 
-    # Store pickup address
+    print(f"[PASSENGER_LOG] {telegram_id} processing pickup address: '{pickup_address}'")
+    
+    # Initialize ride_data if it doesn't exist
+    if 'ride_data' not in context.user_data:
+        context.user_data['ride_data'] = {}
+    
+    # Geocode address to get coordinates
+    try:
+        lat, lng = geocode_address(pickup_address)
+        print(f"[PASSENGER_LOG] {telegram_id} geocoded pickup address to: {lat}, {lng}")
+    except Exception as e:
+        print(f"[PASSENGER_LOG] {telegram_id} geocoding error: {e}")
+        # Use default coordinates if geocoding fails (Almaty center)
+        lat, lng = 43.2220, 76.8512
+
+    # Store pickup data in ride_data format
+    context.user_data['ride_data']['pickup_address'] = pickup_address
+    context.user_data['ride_data']['pickup_lat'] = lat
+    context.user_data['ride_data']['pickup_lng'] = lng
+    
+    # Also store in old format for compatibility
     context.user_data['pickup_address'] = pickup_address
-
-    # Ask for location confirmation
-    update.message.reply_text(
-        translations['confirm_pickup_location'][language],
-        reply_markup=location_request_menu(update, context)
-    )
-
-    return LOCATION_UPDATE
-
-
-def handle_location_update(update: Update, context: CallbackContext) -> int:
-    """Handle location update from user"""
-    language = context.user_data.get('language', 'kaz')
-    telegram_id = str(update.effective_user.id)
-
-    if not update.message.location:
-        # User didn't send location, show error and ask again
-        update.message.reply_text(
-            translations['location_update_failed'][language],
-            reply_markup=location_request_menu(update, context)
-        )
-        return LOCATION_UPDATE
-
-    # Get location coordinates
-    lat = update.message.location.latitude
-    lng = update.message.location.longitude
-
-    # Store location
     context.user_data['pickup_lat'] = lat
     context.user_data['pickup_lng'] = lng
 
-    # Ask for destination address
+    # Ask for destination address (no location button)
     update.message.reply_text(
         translations['enter_destination'][language],
         reply_markup=ReplyKeyboardRemove()
     )
 
     return DESTINATION_ADDRESS
+
+
+def handle_location_update(update: Update, context: CallbackContext) -> int:
+    """Handle location update from user (legacy support - redirects to pickup address handler)"""
+    # If user sends location, treat it as pickup address input
+    # Convert location to text and process as address
+    language = context.user_data.get('language', 'kaz')
+    
+    if update.message.location:
+        # User sent location - convert to address format
+        lat = update.message.location.latitude
+        lng = update.message.location.longitude
+        address = f"📍 Координаты: {lat:.6f}, {lng:.6f}"
+        
+        # Store location data
+        if 'ride_data' not in context.user_data:
+            context.user_data['ride_data'] = {}
+        
+        context.user_data['ride_data']['pickup_address'] = address
+        context.user_data['ride_data']['pickup_lat'] = lat
+        context.user_data['ride_data']['pickup_lng'] = lng
+        
+        context.user_data['pickup_address'] = address
+        context.user_data['pickup_lat'] = lat
+        context.user_data['pickup_lng'] = lng
+        
+        # Ask for destination
+        update.message.reply_text(
+            translations['enter_destination'][language],
+            reply_markup=ReplyKeyboardRemove()
+        )
+        
+        return DESTINATION_ADDRESS
+    else:
+        # If text is sent, treat as address and process
+        return handle_pickup_address(update, context)
 
 
