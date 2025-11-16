@@ -3,7 +3,7 @@ Utility functions for API operations
 """
 import os
 import logging
-from telegram import Bot
+from telegram import Bot, ReplyKeyboardMarkup, KeyboardButton
 
 logger = logging.getLogger(__name__)
 
@@ -35,25 +35,70 @@ def send_driver_notification(driver_telegram_id, notification_type, context_data
             message = translations['document_approved'][language].format(
                 document_type=document_type
             )
+            # Send notification
+            bot.send_message(
+                chat_id=driver_telegram_id,
+                text=message
+            )
+            logger.info(f"Sent {notification_type} notification to driver {driver_telegram_id}")
+            return True
+            
         elif notification_type == 'document_rejected':
             document_type = context_data.get('document_type', 'Document')
             message = translations['document_rejected'][language].format(
                 document_type=document_type
             )
+            # Send notification
+            bot.send_message(
+                chat_id=driver_telegram_id,
+                text=message
+            )
+            logger.info(f"Sent {notification_type} notification to driver {driver_telegram_id}")
+            return True
+            
         elif notification_type == 'driver_verified':
             message = translations['driver_fully_verified'][language]
+            
+            # After verification, send main menu
+            # Get driver to check online status
+            from api.services import DriverService
+            driver, _ = DriverService.get_or_create_driver(str(driver_telegram_id))
+            
+            # Build main menu keyboard
+            if driver and driver.is_online:
+                online_button = translations['buttons']['go_offline'][language]
+            else:
+                online_button = translations['buttons']['go_online'][language]
+            
+            keyboard = [
+                [KeyboardButton(online_button)],
+                [KeyboardButton(translations['buttons']['active_rides'][language])],
+                [KeyboardButton(translations['buttons']['statistics'][language]),
+                 KeyboardButton(translations['buttons']['history'][language])],
+                [KeyboardButton(translations['buttons']['support'][language])],
+                [KeyboardButton(translations['buttons']['settings'][language])]
+            ]
+            
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            
+            # Send verification message
+            bot.send_message(
+                chat_id=driver_telegram_id,
+                text=message
+            )
+            
+            # Send main menu
+            bot.send_message(
+                chat_id=driver_telegram_id,
+                text=translations['main_menu'][language],
+                reply_markup=reply_markup
+            )
+            
+            logger.info(f"Sent {notification_type} notification and main menu to driver {driver_telegram_id}")
+            return True
         else:
             logger.error(f"Unknown notification type: {notification_type}")
             return False
-
-        # Send notification
-        bot.send_message(
-            chat_id=driver_telegram_id,
-            text=message
-        )
-
-        logger.info(f"Sent {notification_type} notification to driver {driver_telegram_id}")
-        return True
 
     except Exception as e:
         logger.error(f"Error sending {notification_type} notification to driver {driver_telegram_id}: {str(e)}")
