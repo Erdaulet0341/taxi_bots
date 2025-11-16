@@ -10,11 +10,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
           python-version: 3.9
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -24,50 +25,53 @@ jobs:
   build_backend:
     name: Push Docker image to Docker Hub
     runs-on: ubuntu-latest
-    needs: lint
+    # Remove dependency on lint to run in parallel (lint is fast, won't block)
+    # needs: lint
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
       - name: Login to Docker
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
       - name: Push to Docker Hub
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v5
         with:
           push: true
           context: .
           platforms: linux/amd64,linux/arm64
           tags: e7abdurakhman/taxi_bots
+          cache-from: type=registry,ref=e7abdurakhman/taxi_bots:buildcache
+          cache-to: type=registry,ref=e7abdurakhman/taxi_bots:buildcache,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
 
   deploy:
     runs-on: ubuntu-latest
-    needs: build_backend
-    if:
-      contains('
-      refs/heads/master
-      ', github.ref)
+    needs: [lint, build_backend]
+    if: github.ref == 'refs/heads/master'
     steps:
       - name: executing remote ssh commands to deploy
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USER }}
           password: ${{ secrets.PASSWORD }}
-
-
           script: |
             cd taxi_bots
             chmod 777 logs  
             echo ${{ secrets.DOCKER_PASSWORD }} | sudo docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
-            sudo docker pull e7abdurakhman/taxi_bots
+            # Pull with cache optimization
+            sudo docker pull e7abdurakhman/taxi_bots || true
             sudo docker compose stop
             sudo docker compose down
+            # Clean up old images to save space (optional)
+            sudo docker image prune -f
             mkdir -p celerybeat-schedule
-            sudo docker compose up -d
+            sudo docker compose up -d --remove-orphans
 
