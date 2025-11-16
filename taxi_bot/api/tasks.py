@@ -131,6 +131,17 @@ def send_driver_notification(driver_telegram_id, ride, distance_km):
             reply_markup=reply_markup
         )
 
+        # Store notification message ID for potential deletion when ride is accepted
+        try:
+            from api.models import RideNotification
+            RideNotification.objects.update_or_create(
+                ride_id=ride.id,
+                driver_telegram_id=str(driver_telegram_id),
+                defaults={'message_id': sent_message.message_id}
+            )
+        except Exception as e:
+            logger.warning(f"Could not store notification message ID: {str(e)}")
+
         # Schedule auto-reject task with message ID for deletion
         auto_reject_ride.apply_async(
             args=[ride.id, driver_telegram_id, sent_message.message_id],
@@ -216,6 +227,16 @@ def auto_reject_ride(ride_id, driver_telegram_id, message_id=None):
                     message_id=message_id
                 )
                 logger.info(f"Deleted original ride notification message {message_id} for driver {driver_telegram_id}")
+                
+                # Clean up notification record
+                try:
+                    from api.models import RideNotification
+                    RideNotification.objects.filter(
+                        ride_id=ride_id,
+                        driver_telegram_id=str(driver_telegram_id)
+                    ).delete()
+                except Exception as e:
+                    logger.warning(f"Could not delete notification record: {str(e)}")
             except Exception as e:
                 logger.warning(f"Could not delete original message {message_id}: {str(e)}")
 
@@ -525,6 +546,17 @@ def send_boosted_ride_notification(driver_telegram_id, ride, distance_km):
             text=message,
             reply_markup=reply_markup
         )
+
+        # Store notification message ID for potential deletion when ride is accepted
+        try:
+            from api.models import RideNotification
+            RideNotification.objects.update_or_create(
+                ride_id=ride.id,
+                driver_telegram_id=str(driver_telegram_id),
+                defaults={'message_id': sent_message.message_id}
+            )
+        except Exception as e:
+            logger.warning(f"Could not store boosted ride notification message ID: {str(e)}")
 
         # Schedule auto-reject task with message ID for deletion (60 seconds)
         auto_reject_ride.apply_async(

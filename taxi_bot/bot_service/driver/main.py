@@ -145,6 +145,17 @@ def notify_driver_about_ride(driver_telegram_id, ride, distance_km):
             reply_markup=reply_markup
         )
 
+        # Store notification message ID for potential deletion when ride is accepted
+        try:
+            from api.models import RideNotification
+            RideNotification.objects.update_or_create(
+                ride_id=ride.id,
+                driver_telegram_id=str(driver_telegram_id),
+                defaults={'message_id': sent_message.message_id}
+            )
+        except Exception as e:
+            logger.warning(f"Could not store notification message ID: {str(e)}")
+
         # Set auto-reject timer (60 seconds)
         updater.job_queue.run_once(
             auto_reject_ride,

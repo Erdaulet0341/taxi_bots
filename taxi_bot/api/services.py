@@ -440,6 +440,45 @@ class DriverService:
             ride.driver = driver
             ride.update_status('assigned', 'Driver assigned')
 
+            # Delete all notifications for this ride from other drivers
+            try:
+                from api.models import RideNotification
+                from telegram import Bot
+                import os
+                
+                notifications = RideNotification.objects.filter(ride_id=ride_id)
+                bot_token = os.getenv('TG_BOT_TOKEN_DRIVER')
+                
+                if bot_token:
+                    bot = Bot(token=bot_token)
+                    deleted_count = 0
+                    
+                    for notification in notifications:
+                        # Skip deleting notification for the driver who accepted
+                        if str(notification.driver_telegram_id) == str(telegram_id):
+                            continue
+                            
+                        try:
+                            bot.delete_message(
+                                chat_id=notification.driver_telegram_id,
+                                message_id=notification.message_id
+                            )
+                            deleted_count += 1
+                            logger.info(f"Deleted notification message {notification.message_id} for driver {notification.driver_telegram_id} (ride {ride_id})")
+                        except Exception as e:
+                            logger.warning(f"Could not delete notification message {notification.message_id} for driver {notification.driver_telegram_id}: {str(e)}")
+                    
+                    # Delete all notification records for this ride
+                    notifications.delete()
+                    logger.info(f"Deleted {deleted_count} notifications for ride {ride_id} after driver {telegram_id} accepted")
+                else:
+                    logger.warning("Driver bot token not found, could not delete notifications")
+                    # Still delete the records even if we can't delete messages
+                    notifications.delete()
+                    
+            except Exception as e:
+                logger.error(f"Error deleting notifications for ride {ride_id}: {str(e)}")
+
             return True, ride
         except Ride.DoesNotExist:
             return False, "Ride not available"

@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     User, Passenger, Driver, Vehicle, DriverDocument,
-    Ride, RideStatus, Rating, Admin, AppSettings
+    Ride, RideStatus, Rating, Admin, AppSettings, RideNotification
 )
 
 
@@ -219,4 +219,29 @@ class AppSettingsAdmin(admin.ModelAdmin):
     
     def has_delete_permission(self, request, obj=None):
         # Prevent deletion of critical settings
+        return False
+
+
+@admin.register(RideNotification)
+class RideNotificationAdmin(admin.ModelAdmin):
+    list_display = ('ride', 'driver_telegram_id', 'message_id', 'created_at')
+    list_filter = ('created_at', 'ride__status')
+    search_fields = ('ride__id', 'driver_telegram_id', 'message_id')
+    readonly_fields = ('ride', 'driver_telegram_id', 'message_id', 'created_at')
+    
+    fieldsets = (
+        ('Notification Info', {
+            'fields': ('ride', 'driver_telegram_id', 'message_id')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        # Prevent manual creation of notifications
+        return False
+    
+    def has_change_permission(self, request, obj=None):
+        # Prevent editing of notifications
         return False

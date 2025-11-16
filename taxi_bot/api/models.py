@@ -377,6 +377,24 @@ class AppSettings(models.Model):
         verbose_name_plural = 'App Settings'
 
 
+class RideNotification(models.Model):
+    """Store Telegram message IDs for ride notifications to drivers"""
+    ride = models.ForeignKey(Ride, on_delete=models.CASCADE, related_name='notifications')
+    driver_telegram_id = models.CharField(max_length=100)
+    message_id = models.IntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'ride_notifications'
+        unique_together = ['ride', 'driver_telegram_id']
+        indexes = [
+            models.Index(fields=['ride', 'driver_telegram_id']),
+        ]
+
+    def __str__(self):
+        return f"Ride {self.ride.id} -> Driver {self.driver_telegram_id} (msg {self.message_id})"
+
+
 # Signal handlers for real-time notifications
 @receiver(post_save, sender=Ride)
 def notify_drivers_on_ride_creation(sender, instance, created, **kwargs):
