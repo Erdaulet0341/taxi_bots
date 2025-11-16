@@ -28,45 +28,40 @@ services:
       retries: 5
 
   web:
-    image: e7abdurakhman/exam_bot
+    image: e7abdurakhman/taxi_bots
     restart: always
     depends_on:
       - db
     env_file:
       - ./.env
     volumes:
-      - static_value:/code/exam_app/static/
-      - media_value:/code/exam_app/media/
-      - logs_data:/var/log/exam_bot/
+      - static_value:/code/taxi_bot/static/
+      - media_value:/code/taxi_bot/media/
+      - logs_data:/var/log/taxi_bot/
 
   celery_worker:
-    build: .
-    command: bash -c 'cd taxi_bot; celery -A taxi_bot worker -l info'
+    image: e7abdurakhman/taxi_bots
+    restart: always
     volumes:
-      - .:/app
-      - /var/log/shelek/:/app/logs/
+      - media_value:/code/taxi_bot/media/
+      - logs_data:/var/log/taxi_bot/
     env_file:
-      - .env
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
+      - ./.env
+    command: bash -c 'cd taxi_bot; export DJANGO_SETTINGS_MODULE="taxi_bot.settings"; celery -A taxi_bot worker --loglevel=INFO'
 
   celery_beat:
-    build: .
-    command: bash -c 'cd taxi_bot; celery -A taxi_bot beat -l info'
-    volumes:
-      - .:/app
-    env_file:
-      - .env
+    image: e7abdurakhman/taxi_bots
+    restart: always
     depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
+      - celery_worker
+    volumes:
+      - ./celerybeat-schedule/:/code/celerybeat
+      - media_value:/code/taxi_bot/media/
+      - logs_data:/var/log/taxi_bot/
+    env_file:
+      - ./.env
+    command: bash -c 'cd taxi_bot; export DJANGO_SETTINGS_MODULE="taxi_bot.settings"; celery -A taxi_bot beat --loglevel=INFO'
+
 
   nginx:
     image: nginx:latest
@@ -91,7 +86,7 @@ services:
       - ./certbot/conf/:/etc/letsencrypt/:rw
 
   driver_bot:
-    image: e7abdurakhman/exam_bot
+    image: e7abdurakhman/taxi_bots
     build:
       context: .
       dockerfile: DriverBotDispatcherDockerFile
@@ -99,13 +94,13 @@ services:
     depends_on:
       - web
     volumes:
-      - logs_data:/var/log/exam_bot/
+      - logs_data:/var/log/taxi_bot/
     env_file:
       - ./.env
-    command: bash -c 'cd exam_app; export DJANGO_SETTINGS_MODULE="exam_app.settings"; python manage.py driver_bot'
+    command: bash -c 'cd taxi_bot; export DJANGO_SETTINGS_MODULE="taxi_bot.settings"; python manage.py driver_bot'
 
   passenger_bot:
-    image: e7abdurakhman/exam_bot
+    image: e7abdurakhman/taxi_bots
     build:
       context: .
       dockerfile: PassengerBotDispatcherDockerFile
@@ -113,11 +108,14 @@ services:
     depends_on:
       - web
     volumes:
-      - logs_data:/var/log/exam_bot/
+      - logs_data:/var/log/taxi_bot/
     env_file:
       - ./.env
-    command: bash -c 'cd exam_app; export DJANGO_SETTINGS_MODULE="exam_app.settings"; python manage.py passenger_bot'
+    command: bash -c 'cd taxi_bot; export DJANGO_SETTINGS_MODULE="taxi_bot.settings"; python manage.py passenger_bot'
 
 volumes:
   postgres_data:
   redis_data:
+  static_value:
+  media_value:
+  logs_data:

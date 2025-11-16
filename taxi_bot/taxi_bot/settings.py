@@ -31,6 +31,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+# CSRF trusted origins
+CSRF_TRUSTED_ORIGINS = [
+    'http://shelek.shop',
+    'https://shelek.shop',
+]
 
 # Application definition
 
