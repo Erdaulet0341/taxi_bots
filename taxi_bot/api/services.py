@@ -440,10 +440,11 @@ class DriverService:
             ride.driver = driver
             ride.update_status('assigned', 'Driver assigned')
 
-            # Delete all notifications for this ride from other drivers
+            # Update all notifications for this ride to inform other drivers that order was taken
             try:
-                from api.models import RideNotification
+                from api.models import RideNotification, User
                 from telegram import Bot
+                from bot_service.driver.dictionary import translations
                 import os
                 
                 notifications = RideNotification.objects.filter(ride_id=ride_id)
@@ -451,33 +452,50 @@ class DriverService:
                 
                 if bot_token:
                     bot = Bot(token=bot_token)
-                    deleted_count = 0
+                    updated_count = 0
                     
                     for notification in notifications:
-                        # Skip deleting notification for the driver who accepted
+                        # Skip updating notification for the driver who accepted
                         if str(notification.driver_telegram_id) == str(telegram_id):
                             continue
                             
                         try:
-                            bot.delete_message(
+                            # Get driver's language
+                            try:
+                                driver_user = User.objects.get(telegram_id=str(notification.driver_telegram_id))
+                                language = driver_user.language
+                            except:
+                                language = 'kaz'
+                            
+                            # Update the notification message to inform driver that order was taken
+                            update_message = translations['ride_taken_by_another_driver'][language]
+                            
+                            bot.edit_message_text(
                                 chat_id=notification.driver_telegram_id,
-                                message_id=notification.message_id
+                                message_id=notification.message_id,
+                                text=update_message,
+                                reply_markup=None  # Remove Accept/Reject buttons
                             )
-                            deleted_count += 1
-                            logger.info(f"Deleted notification message {notification.message_id} for driver {notification.driver_telegram_id} (ride {ride_id})")
+                            updated_count += 1
+                            logger.info(f"Updated notification message {notification.message_id} for driver {notification.driver_telegram_id} (ride {ride_id})")
                         except Exception as e:
-                            logger.warning(f"Could not delete notification message {notification.message_id} for driver {notification.driver_telegram_id}: {str(e)}")
+                            logger.warning(f"Could not update notification message {notification.message_id} for driver {notification.driver_telegram_id}: {str(e)}")
+                            # If edit fails (e.g., message was already deleted), try to delete the record
+                            try:
+                                notification.delete()
+                            except:
+                                pass
                     
-                    # Delete all notification records for this ride
+                    # Delete all notification records for this ride after updating messages
                     notifications.delete()
-                    logger.info(f"Deleted {deleted_count} notifications for ride {ride_id} after driver {telegram_id} accepted")
+                    logger.info(f"Updated {updated_count} notifications for ride {ride_id} after driver {telegram_id} accepted")
                 else:
-                    logger.warning("Driver bot token not found, could not delete notifications")
-                    # Still delete the records even if we can't delete messages
+                    logger.warning("Driver bot token not found, could not update notifications")
+                    # Still delete the records even if we can't update messages
                     notifications.delete()
                     
             except Exception as e:
-                logger.error(f"Error deleting notifications for ride {ride_id}: {str(e)}")
+                logger.error(f"Error updating notifications for ride {ride_id}: {str(e)}")
 
             return True, ride
         except Ride.DoesNotExist:
