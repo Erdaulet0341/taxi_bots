@@ -97,3 +97,22 @@ def contact_request_menu(update: Update, context: CallbackContext):
 def remove_keyboard():
     """Remove custom keyboard"""
     return ReplyKeyboardRemove()
+
+
+def cost_selection_menu(update: Update, context: CallbackContext):
+    """Display cost selection menu with price buttons"""
+    language = context.user_data.get('language', 'kaz')
+    
+    # Cost options based on the image: 400, 450, 500, 550, 600, 650, 700, 800, 1000, 1500, 2000, 5000, 6000, 8000, 10000
+    cost_options = [400, 450, 500, 550, 600, 650, 700, 800, 1000, 1500, 2000, 5000, 6000, 8000, 10000]
+    
+    # Create keyboard with 3 buttons per row
+    keyboard = []
+    for i in range(0, len(cost_options), 3):
+        row = [KeyboardButton(str(cost)) for cost in cost_options[i:i+3]]
+        keyboard.append(row)
+    
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+    
+    message_text = translations['select_cost'][language]
+    update.message.reply_text(message_text, reply_markup=reply_markup)

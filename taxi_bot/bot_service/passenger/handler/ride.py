@@ -12,8 +12,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from api.services import PassengerService, RideService, geocode_address
 from ..dictionary import translations
-from ..states import PICKUP_ADDRESS, DESTINATION_ADDRESS, CONFIRM_RIDE, WAITING_DRIVER, RATING, MAIN_MENU
-from ..menu import main_menu, confirmation_menu, rating_menu
+from ..states import PICKUP_ADDRESS, DESTINATION_ADDRESS, COST_SELECTION, CONFIRM_RIDE, WAITING_DRIVER, RATING, MAIN_MENU
+from ..menu import main_menu, confirmation_menu, rating_menu, cost_selection_menu
 import logging
 
 logger = logging.getLogger(__name__)
@@ -154,14 +154,44 @@ def handle_destination_location(update: Update, context: CallbackContext) -> int
         update.message.reply_text(translations['invalid_destination'][language])
         return DESTINATION_ADDRESS
 
-    # Show cost calculation
+    # Show cost selection menu instead of creating ride immediately
+    print(f"[PASSENGER_LOG] {telegram_id} showing cost selection menu")
+    cost_selection_menu(update, context)
+
+    return COST_SELECTION
+
+
+def handle_cost_selection(update: Update, context: CallbackContext) -> int:
+    """Handle cost selection from buttons"""
+    language = context.user_data.get('language', 'kaz')
+    telegram_id = str(update.effective_user.id)
+    user_response = update.message.text.strip()
+
+    print(f"[PASSENGER_LOG] {telegram_id} in COST_SELECTION state, selected cost: '{user_response}'")
+
+    # Validate that the input is a valid number
+    try:
+        selected_cost = float(user_response)
+        if selected_cost <= 0:
+            raise ValueError("Cost must be positive")
+    except ValueError:
+        update.message.reply_text(translations['invalid_address'][language])
+        cost_selection_menu(update, context)
+        return COST_SELECTION
+
+    # Store selected cost
+    if 'ride_data' not in context.user_data:
+        context.user_data['ride_data'] = {}
+    context.user_data['ride_data']['selected_cost'] = selected_cost
+    print(f"[PASSENGER_LOG] {telegram_id} stored selected cost: {selected_cost}")
+
+    # Show cost calculation message
     update.message.reply_text(translations['calculating_cost'][language])
 
-    # Create ride request to get cost estimate
-    telegram_id = str(update.effective_user.id)
+    # Create ride request with selected cost
     ride_data = context.user_data['ride_data']
 
-    print(f"[PASSENGER_LOG] {telegram_id} creating ride request")
+    print(f"[PASSENGER_LOG] {telegram_id} creating ride request with cost: {selected_cost}")
     print(f"[PASSENGER_LOG] {telegram_id} ride_data: {ride_data}")
 
     ride, distance_km, duration_min = PassengerService.create_ride_request(
@@ -171,7 +201,8 @@ def handle_destination_location(update: Update, context: CallbackContext) -> int
         pickup_lng=ride_data['pickup_lng'],
         destination_address=ride_data['destination_address'],
         destination_lat=ride_data['destination_lat'],
-        destination_lng=ride_data['destination_lng']
+        destination_lng=ride_data['destination_lng'],
+        custom_cost=selected_cost
     )
 
     print(f"[PASSENGER_LOG] {telegram_id} ride creation result: ride={ride}, distance={distance_km}, duration={duration_min}")
@@ -186,7 +217,6 @@ def handle_destination_location(update: Update, context: CallbackContext) -> int
     ride_id_str = str(ride.id)
     context.user_data['ride_id'] = ride_id_str
     print(f"[PASSENGER_LOG] {telegram_id} stored ride_id: {ride_id_str}")
-    print(f"[PASSENGER_LOG] {telegram_id} context.user_data after storing: {context.user_data}")
 
     # Show confirmation
     confirmation_menu(

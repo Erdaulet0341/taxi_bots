@@ -138,14 +138,15 @@ class PassengerService:
 
     @staticmethod
     def create_ride_request(telegram_id, pickup_address, pickup_lat, pickup_lng,
-                           destination_address, destination_lat, destination_lng):
-        """Create new ride request with fixed pricing"""
+                           destination_address, destination_lat, destination_lng, custom_cost=None):
+        """Create new ride request with custom or default pricing"""
         try:
             from .models import AppSettings
 
             print(f"[PASSENGER_LOG] Creating ride request for {telegram_id}")
             print(f"[PASSENGER_LOG] Pickup: {pickup_address} ({pickup_lat}, {pickup_lng})")
             print(f"[PASSENGER_LOG] Destination: {destination_address} ({destination_lat}, {destination_lng})")
+            print(f"[PASSENGER_LOG] Custom cost: {custom_cost}")
 
             user = User.objects.get(telegram_id=telegram_id)
             print(f"[PASSENGER_LOG] Found user: {user}, phone verified: {user.is_phone_verified}")
@@ -158,8 +159,11 @@ class PassengerService:
             destination = (float(destination_lat), float(destination_lng))
             distance_km = geodesic(pickup, destination).kilometers
 
-            # Use fixed cost from settings
-            estimated_cost = AppSettings.get_default_ride_cost()
+            # Use custom cost if provided, otherwise use default from settings
+            if custom_cost is not None:
+                estimated_cost = Decimal(str(custom_cost))
+            else:
+                estimated_cost = AppSettings.get_default_ride_cost()
 
             print(f"[PASSENGER_LOG] Creating ride object with estimated_cost: {estimated_cost}")
 
