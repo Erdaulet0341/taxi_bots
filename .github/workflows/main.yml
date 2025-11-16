@@ -1,0 +1,73 @@
+name: taxi_bots
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip 
+          pip install -r requirements.txt
+
+  build_backend:
+    name: Push Docker image to Docker Hub
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Login to Docker
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Push to Docker Hub
+        uses: docker/build-push-action@v3
+        with:
+          push: true
+          context: .
+          platforms: linux/amd64,linux/arm64
+          tags: e7abdurakhman/taxi_bots
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build_backend
+    if:
+      contains('
+      refs/heads/master
+      ', github.ref)
+    steps:
+      - name: executing remote ssh commands to deploy
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USER }}
+          password: ${{ secrets.PASSWORD }}
+
+
+          script: |
+            cd taxi_bots
+            chmod 777 logs  
+            echo ${{ secrets.DOCKER_PASSWORD }} | sudo docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+            sudo docker pull e7abdurakhman/taxi_bots
+            sudo docker compose stop
+            sudo docker compose down
+            mkdir -p celerybeat-schedule
+            sudo docker compose up -d
+
