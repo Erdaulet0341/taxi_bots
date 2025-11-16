@@ -442,7 +442,7 @@ class DriverService:
 
             # Update all notifications for this ride to inform other drivers that order was taken
             try:
-                from api.models import RideNotification, User
+                from api.models import RideNotification
                 from telegram import Bot
                 from bot_service.driver.dictionary import translations
                 import os
