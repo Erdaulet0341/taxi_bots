@@ -451,14 +451,30 @@ class DriverService:
     def get_driver_earnings(telegram_id):
         """Get driver earnings summary"""
         try:
+            from datetime import timedelta
+            
             user = User.objects.get(telegram_id=telegram_id)
             driver = user.driver_profile
 
             completed_rides = driver.rides.filter(status='completed')
-            today_rides = completed_rides.filter(completed_at__date=timezone.now().date())
+            today = timezone.now().date()
+            week_ago = today - timedelta(days=7)
+            month_ago = today - timedelta(days=30)
 
-            total_earnings = sum(ride.final_cost or 0 for ride in completed_rides)
-            today_earnings = sum(ride.final_cost or 0 for ride in today_rides)
+            # Filter rides by date
+            today_rides = completed_rides.filter(completed_at__date=today)
+            week_rides = completed_rides.filter(completed_at__date__gte=week_ago)
+            month_rides = completed_rides.filter(completed_at__date__gte=month_ago)
+
+            # Calculate earnings using final_cost or display_cost
+            def get_ride_cost(ride):
+                """Get the cost of a ride (final_cost or estimated_cost)"""
+                return float(ride.final_cost or ride.display_cost or 0)
+
+            total_earnings = sum(get_ride_cost(ride) for ride in completed_rides)
+            today_earnings = sum(get_ride_cost(ride) for ride in today_rides)
+            week_earnings = sum(get_ride_cost(ride) for ride in week_rides)
+            month_earnings = sum(get_ride_cost(ride) for ride in month_rides)
 
             return {
                 'balance': driver.balance,
@@ -466,6 +482,8 @@ class DriverService:
                 'average_rating': driver.average_rating,
                 'total_earnings': total_earnings,
                 'today_earnings': today_earnings,
+                'week_earnings': week_earnings,
+                'month_earnings': month_earnings,
                 'today_rides_count': today_rides.count()
             }
         except Exception as e:

@@ -111,20 +111,22 @@ def handle_statistics(update: Update, context: CallbackContext) -> int:
     language = context.user_data.get('language', 'kaz')
     telegram_id = str(update.effective_user.id)
 
-    # Get driver statistics
-    driver = DriverService.get_driver_by_telegram_id(telegram_id)
+    # Get driver statistics with earnings
+    earnings_data = DriverService.get_driver_earnings(telegram_id)
 
-    if driver:
-        stats_message = f"""
-📊 {translations['earnings_summary'][language].format(
-    balance=driver.balance,
-    total_rides=driver.total_rides,
-    rating=driver.average_rating,
-    today_earnings=0,  # TODO: Calculate today's earnings
-    week_earnings=0,   # TODO: Calculate week's earnings
-    month_earnings=0   # TODO: Calculate month's earnings
-)}
-        """.strip()
+    if earnings_data:
+        stats_message = """
+📊 {summary}
+        """.strip().format(
+            summary=translations['earnings_summary'][language].format(
+                balance=earnings_data['balance'],
+                total_rides=earnings_data['total_rides'],
+                rating=earnings_data['average_rating'],
+                today_earnings=int(earnings_data['today_earnings']),
+                week_earnings=int(earnings_data['week_earnings']),
+                month_earnings=int(earnings_data['month_earnings'])
+            )
+        )
 
         update.message.reply_text(stats_message, reply_markup=ReplyKeyboardRemove())
     else:
