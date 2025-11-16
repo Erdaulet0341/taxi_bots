@@ -15,8 +15,8 @@ from bot_service.driver.handler.registration import (
 )
 from bot_service.driver.handler.menu_handler import (
     handle_main_menu, handle_go_online, handle_go_offline, handle_statistics,
-    handle_history, handle_update_location, handle_location_update, handle_settings,
-    handle_active_rides
+    handle_history, handle_location_update, handle_settings,
+    handle_active_rides, handle_support
 )
 from bot_service.driver.handler.ride_management import handle_ride_response, handle_ride_management
 from bot_service.driver.states import *

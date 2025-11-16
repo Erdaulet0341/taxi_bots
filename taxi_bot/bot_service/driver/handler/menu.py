@@ -56,19 +56,10 @@ def handle_main_menu(update: Update, context: CallbackContext) -> int:
         show_settings_menu(update, context)
         return MAIN_MENU
 
-    elif user_input == translations['buttons']['update_location'][language]:
-        # Update location
-        keyboard = [[KeyboardButton(
-            translations['buttons']['send_location'][language],
-            request_location=True
-        )]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-
-        update.message.reply_text(
-            translations['share_location'][language],
-            reply_markup=reply_markup
-        )
-        return LOCATION_UPDATE
+    elif user_input == translations['buttons']['support'][language]:
+        # Show support info
+        show_support_info(update, context)
+        return MAIN_MENU
     else:
         # Unknown input, show main menu again
         print(f"Unknown command from driver {telegram_id}: {user_input}")

@@ -43,8 +43,8 @@ def handle_main_menu(update: Update, context: CallbackContext) -> int:
         return handle_statistics(update, context)
     elif user_input == translations['buttons']['history'][language]:
         return handle_history(update, context)
-    elif user_input == translations['buttons']['update_location'][language]:
-        return handle_update_location(update, context)
+    elif user_input == translations['buttons']['support'][language]:
+        return handle_support(update, context)
     elif user_input == translations['buttons']['active_rides'][language]:
         return handle_active_rides(update, context)
     elif user_input == translations['buttons']['settings'][language]:
@@ -163,28 +163,16 @@ def handle_history(update: Update, context: CallbackContext) -> int:
     return MAIN_MENU
 
 
-def handle_update_location(update: Update, context: CallbackContext) -> int:
-    """Handle update location button - request location sharing"""
+def handle_support(update: Update, context: CallbackContext) -> int:
+    """Handle support button"""
     language = context.user_data.get('language', 'kaz')
 
-    # Request location sharing with a button
-    keyboard = [[KeyboardButton(
-        translations['buttons']['send_location'][language],
-        request_location=True
-    )]]
+    support_message = translations['driver_support_info'][language]
 
-    reply_markup = ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
+    update.message.reply_text(support_message, reply_markup=ReplyKeyboardRemove())
 
-    update.message.reply_text(
-        translations['please_share_location'][language],
-        reply_markup=reply_markup
-    )
-
-    return LOCATION_UPDATE
+    main_menu(update, context)
+    return MAIN_MENU
 
 
 def handle_location_update(update: Update, context: CallbackContext) -> int:

@@ -34,7 +34,7 @@ def main_menu(update: Update, context: CallbackContext):
         [KeyboardButton(translations['buttons']['active_rides'][language])],
         [KeyboardButton(translations['buttons']['statistics'][language]),
          KeyboardButton(translations['buttons']['history'][language])],
-        [KeyboardButton(translations['buttons']['update_location'][language])],
+        [KeyboardButton(translations['buttons']['support'][language])],
         [KeyboardButton(translations['buttons']['settings'][language])]
     ]
 
