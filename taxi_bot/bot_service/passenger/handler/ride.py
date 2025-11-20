@@ -185,9 +185,6 @@ def handle_cost_selection(update: Update, context: CallbackContext) -> int:
     context.user_data['ride_data']['selected_cost'] = selected_cost
     print(f"[PASSENGER_LOG] {telegram_id} stored selected cost: {selected_cost}")
 
-    # Show cost calculation message
-    update.message.reply_text(translations['calculating_cost'][language])
-
     # Create ride request with selected cost
     ride_data = context.user_data['ride_data']
 
@@ -202,7 +199,8 @@ def handle_cost_selection(update: Update, context: CallbackContext) -> int:
         destination_address=ride_data['destination_address'],
         destination_lat=ride_data['destination_lat'],
         destination_lng=ride_data['destination_lng'],
-        custom_cost=selected_cost
+        custom_cost=selected_cost,
+        skip_notifications=True  # Don't notify drivers until passenger confirms
     )
 
     print(f"[PASSENGER_LOG] {telegram_id} ride creation result: ride={ride}, distance={distance_km}, duration={duration_min}")
@@ -279,7 +277,22 @@ def handle_ride_confirmation(update: Update, context: CallbackContext) -> int:
             reply_markup=reply_markup
         )
 
-        # TODO: Notify drivers about new ride request
+        # Notify drivers about new ride request after confirmation
+        try:
+            from api.models import Ride
+            from api.tasks import notify_drivers_about_new_ride
+            
+            ride = Ride.objects.get(id=ride_id)
+            # Ensure ride status is 'requested' (it should be, but double-check)
+            if ride.status != 'requested':
+                ride.status = 'requested'
+                ride.save(update_fields=['status'])
+            
+            # Trigger driver notifications
+            notify_drivers_about_new_ride.delay(ride_id)
+            logger.info(f"Triggered driver notifications for confirmed ride {ride_id}")
+        except Exception as e:
+            logger.error(f"Failed to trigger driver notifications for ride {ride_id}: {str(e)}")
 
         return WAITING_DRIVER
 
@@ -385,15 +398,152 @@ def handle_waiting_driver(update: Update, context: CallbackContext) -> int:
         return WAITING_DRIVER
 
     elif user_response == translations['buttons']['sos'][language]:
-        # SOS - help on the road
-        update.message.reply_text(
-            translations['help_on_road'][language],
-            reply_markup=ReplyKeyboardRemove()
-        )
+        # SOS - help on the road - cancel ride and notify both passenger and driver
+        if ride_id:
+            try:
+                from api.models import Ride
+                ride = Ride.objects.get(id=ride_id)
+                
+                # Get passenger info
+                passenger = ride.passenger
+                passenger_name = passenger.user.full_name
+                passenger_phone = passenger.user.phone_number
+                
+                # Get driver info (if assigned)
+                driver_name = "N/A"
+                driver_phone = "N/A"
+                vehicle_info = "N/A"
+                driver = None
+                
+                if ride.driver:
+                    driver = ride.driver
+                    driver_name = driver.user.full_name
+                    driver_phone = driver.user.phone_number
+                    
+                    # Get vehicle info
+                    if hasattr(driver, 'vehicle') and driver.vehicle:
+                        vehicle = driver.vehicle
+                        vehicle_info = f"{vehicle.make} {vehicle.model}, {vehicle.license_plate}, {vehicle.color}"
+                
+                # Get addresses
+                pickup_address = ride.pickup_address
+                destination_address = ride.destination_address
+                
+                # Create SOS message for support
+                sos_message = (
+                    f"🚨 SOS - ЖЕДЕЛ КӨМЕК!\n\n"
+                    f"👤 Жолаушы:\n"
+                    f"   Есім: {passenger_name}\n"
+                    f"   Телефон: {passenger_phone}\n\n"
+                    f"🚗 Жүргізуші:\n"
+                    f"   Есім: {driver_name}\n"
+                    f"   Телефон: {driver_phone}\n"
+                    f"   Көлік: {vehicle_info}\n\n"
+                    f"📍 Мекенжайлар:\n"
+                    f"   Бастапқы: {pickup_address}\n"
+                    f"   Баратын: {destination_address}"
+                )
+                
+                # Send to SOS_TG_ID from .env
+                sos_tg_id = os.getenv('SOS_TG_ID')
+                if sos_tg_id:
+                    from bot_service.passenger.main import updater
+                    updater.bot.send_message(
+                        chat_id=sos_tg_id,
+                        text=sos_message
+                    )
+                    logger.info(f"SOS message sent to support ({sos_tg_id}) for ride {ride_id}")
+                else:
+                    logger.error("SOS_TG_ID not found in environment variables")
+                
+                # Cancel the ride due to SOS
+                success, cancelled_ride = RideService.cancel_ride(ride_id, telegram_id, "Emergency - Passenger activated SOS")
+                
+                if success:
+                    # Notify passenger that ride was cancelled due to SOS
+                    passenger_language = passenger.user.language if hasattr(passenger.user, 'language') else 'kaz'
+                    passenger_notification = translations['help_on_road'][passenger_language] + "\n\n" + translations['ride_cancelled'][passenger_language]
+                    
+                    update.message.reply_text(
+                        passenger_notification,
+                        reply_markup=ReplyKeyboardRemove()
+                    )
+                    
+                    # Notify driver that ride was cancelled due to passenger SOS
+                    if driver:
+                        try:
+                            from bot_service.driver.main import updater as driver_updater
+                            from bot_service.driver.dictionary import translations as driver_translations
+                            
+                            driver_language = driver.user.language if hasattr(driver.user, 'language') else 'kaz'
+                            # Create notification message about SOS cancellation using dictionary
+                            sos_cancellation_msg = driver_translations.get('sos_passenger_activated', {}).get(driver_language, '🚨 Жолаушы SOS белсендірді. Тапсырыс күші жойылды.')
+                            driver_notification = driver_translations['ride_cancelled'][driver_language] + "\n\n" + sos_cancellation_msg
+                            
+                            driver_updater.bot.send_message(
+                                chat_id=driver.user.telegram_id,
+                                text=driver_notification,
+                                reply_markup=ReplyKeyboardRemove()
+                            )
+                            
+                            # Send driver to main menu - check driver's online status
+                            from api.services import DriverService
+                            driver_obj, _ = DriverService.get_or_create_driver(driver.user.telegram_id)
+                            
+                            from telegram import ReplyKeyboardMarkup, KeyboardButton
+                            # Show appropriate online/offline button based on driver status
+                            if driver_obj and driver_obj.is_online:
+                                online_button = driver_translations['buttons']['go_offline'][driver_language]
+                            else:
+                                online_button = driver_translations['buttons']['go_online'][driver_language]
+                            
+                            driver_menu_keyboard = [
+                                [KeyboardButton(online_button)],
+                                [KeyboardButton(driver_translations['buttons']['active_rides'][driver_language])],
+                                [KeyboardButton(driver_translations['buttons']['statistics'][driver_language]),
+                                 KeyboardButton(driver_translations['buttons']['history'][driver_language])],
+                                [KeyboardButton(driver_translations['buttons']['support'][driver_language])],
+                                [KeyboardButton(driver_translations['buttons']['settings'][driver_language])]
+                            ]
+                            driver_menu_markup = ReplyKeyboardMarkup(driver_menu_keyboard, resize_keyboard=True)
+                            
+                            driver_updater.bot.send_message(
+                                chat_id=driver.user.telegram_id,
+                                text=driver_translations['main_menu'][driver_language],
+                                reply_markup=driver_menu_markup
+                            )
+                            
+                            logger.info(f"Notified driver {driver.user.telegram_id} about SOS cancellation and sent to main menu")
+                        except Exception as e2:
+                            logger.error(f"Failed to notify driver about SOS cancellation: {str(e2)}")
+                    
+                    # Clear ride data
+                    context.user_data.pop('ride_id', None)
+                    context.user_data.pop('ride_data', None)
+                    
+                    logger.warning(f"SOS activated by passenger {telegram_id} - ride {ride_id} cancelled")
+                else:
+                    logger.error(f"Failed to cancel ride {ride_id} after SOS activation")
+                    update.message.reply_text(
+                        translations['error_occurred'][language],
+                        reply_markup=ReplyKeyboardRemove()
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Failed to process SOS: {str(e)}")
+                update.message.reply_text(
+                    translations['error_occurred'][language],
+                    reply_markup=ReplyKeyboardRemove()
+                )
+        else:
+            # No ride_id - just send SOS message
+            update.message.reply_text(
+                translations['help_on_road'][language],
+                reply_markup=ReplyKeyboardRemove()
+            )
+            logger.warning(f"SOS activated by passenger {telegram_id} but no ride_id found")
 
-        # TODO: Send emergency notification to admin
-        logger.warning(f"SOS activated by passenger {telegram_id} - help on the road")
-
+        # Return to main menu
         main_menu(update, context)
         return MAIN_MENU
     

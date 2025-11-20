@@ -15,6 +15,7 @@ from bot_service.driver.states import MAIN_MENU, LOCATION_UPDATE, RIDE_MANAGEMEN
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from api.services import DriverService, RideService, UserService
+from api.models import Ride
 import logging
 
 # Get logger configured from Django settings
@@ -118,8 +119,7 @@ def check_for_nearby_rides(update: Update, context: CallbackContext):
             message = translations['new_ride_request'][language].format(
                 pickup=ride.pickup_address[:50] + "..." if len(ride.pickup_address) > 50 else ride.pickup_address,
                 destination=ride.destination_address[:50] + "..." if len(ride.destination_address) > 50 else ride.destination_address,
-                cost=int(ride.estimated_cost),
-                distance=distance
+                cost=int(ride.estimated_cost)
             )
 
             # Create inline keyboard for quick response
@@ -214,7 +214,6 @@ def handle_ride_response(update: Update, context: CallbackContext) -> int:
             # Show ride management buttons
             keyboard = [
                 [KeyboardButton(translations['buttons']['arrived'][language])],
-                [KeyboardButton(translations['buttons']['start_ride'][language])],
                 [KeyboardButton(translations['buttons']['cancel_ride'][language])]
             ]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -291,6 +290,24 @@ def handle_ride_management(update: Update, context: CallbackContext) -> int:
     ride_id = active_ride['ride_id']
     current_status = active_ride['status']
     logger.info(f"Active ride status: {current_status}")
+    
+    # Check if ride still exists and is not cancelled
+    try:
+        ride = Ride.objects.get(id=ride_id)
+        # If ride is cancelled, clear active_ride and redirect to main menu
+        if ride.status.startswith('cancelled'):
+            logger.info(f"Ride {ride_id} has been cancelled, clearing active_ride and redirecting to main menu")
+            context.user_data.pop('active_ride', None)
+            # Check if user input is a main menu button, handle it in main menu
+            from bot_service.driver.handler.menu_handler import handle_main_menu
+            return handle_main_menu(update, context)
+    except Ride.DoesNotExist:
+        logger.warning(f"Ride {ride_id} no longer exists, clearing active_ride")
+        context.user_data.pop('active_ride', None)
+        main_menu(update, context)
+        return MAIN_MENU
+    except Exception as e:
+        logger.error(f"Error checking ride status: {str(e)}")
 
     if user_input == translations['buttons']['arrived'][language] and current_status == 'assigned':
         # Driver arrived at pickup
@@ -321,35 +338,38 @@ def handle_ride_management(update: Update, context: CallbackContext) -> int:
                     vehicle_info=vehicle_info
                 )
 
-                # Send notification to passenger
-                import sys
-                import os
-                sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
-
+                # Send notification to passenger and remove buttons (increase cost and cancel)
                 try:
-                    from bot_service.passenger.main import notify_passenger
-                    notify_passenger(passenger.user.telegram_id, notification_message)
+                    from bot_service.passenger.main import updater as passenger_updater
+                    
+                    # Send arrival notification with removed buttons
+                    passenger_updater.bot.send_message(
+                        chat_id=passenger.user.telegram_id,
+                        text=notification_message,
+                        reply_markup=ReplyKeyboardRemove()
+                    )
+                    logger.info(f"Sent driver arrival notification to passenger {passenger.user.telegram_id} and removed buttons")
                 except ImportError:
                     # Fallback: try to send notification directly
                     try:
                         from bot_service.passenger.main import updater as passenger_updater
                         passenger_updater.bot.send_message(
                             chat_id=passenger.user.telegram_id,
-                            text=notification_message
+                            text=notification_message,
+                            reply_markup=ReplyKeyboardRemove()
                         )
                         logger.info(f"Sent driver arrival notification to passenger {passenger.user.telegram_id} (fallback method)")
                     except Exception as e2:
                         logger.error(f"Failed to send notification via fallback method: {str(e2)}")
-
-                logger.info(f"Sent driver arrival notification to passenger {passenger.user.telegram_id}")
+                except Exception as e2:
+                    logger.error(f"Failed to send driver arrival notification: {str(e2)}")
 
             except Exception as e:
                 logger.error(f"Failed to send driver arrival notification to passenger: {str(e)}")
 
-            # Update buttons
+            # Update buttons - only show start button after arriving
             keyboard = [
-                [KeyboardButton(translations['buttons']['start_ride'][language])],
-                [KeyboardButton(translations['buttons']['cancel_ride'][language])]
+                [KeyboardButton(translations['buttons']['start_ride'][language])]
             ]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -406,10 +426,9 @@ def handle_ride_management(update: Update, context: CallbackContext) -> int:
             except Exception as e:
                 logger.error(f"Failed to send ride started notification to passenger: {str(e)}")
 
-            # Update buttons
+            # Update buttons - only show complete ride button
             keyboard = [
-                [KeyboardButton(translations['buttons']['complete_ride'][language])],
-                [KeyboardButton(translations['buttons']['sos'][language])]
+                [KeyboardButton(translations['buttons']['complete_ride'][language])]
             ]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -496,6 +515,53 @@ def handle_ride_management(update: Update, context: CallbackContext) -> int:
                 translations['ride_cancelled'][language],
                 reply_markup=ReplyKeyboardRemove()
             )
+
+            # Notify passenger about ride cancellation by driver
+            try:
+                passenger = ride.passenger
+                driver = ride.driver
+
+                # Get passenger's language preference
+                passenger_language = passenger.user.language if hasattr(passenger.user, 'language') else 'kaz'
+
+                # Import passenger translations
+                from bot_service.passenger.dictionary import translations as passenger_translations
+
+                # Create cancellation notification message
+                notification_message = passenger_translations['ride_cancelled_by_driver'][passenger_language].format(
+                    driver_name=driver.user.full_name,
+                    phone=driver.user.phone_number
+                )
+
+                # Create main menu keyboard (same as passenger main menu)
+                keyboard = [
+                    [KeyboardButton(passenger_translations['buttons']['new_order'][passenger_language])],
+                    [KeyboardButton(passenger_translations['buttons']['history'][passenger_language])],
+                    [KeyboardButton(passenger_translations['buttons']['settings'][passenger_language]),
+                     KeyboardButton(passenger_translations['buttons']['support'][passenger_language])]
+                ]
+                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+                # Send notification to passenger
+                try:
+                    from bot_service.passenger.main import updater as passenger_updater
+                    # Send cancellation message
+                    passenger_updater.bot.send_message(
+                        chat_id=passenger.user.telegram_id,
+                        text=notification_message
+                    )
+                    # Send main menu with buttons
+                    passenger_updater.bot.send_message(
+                        chat_id=passenger.user.telegram_id,
+                        text=passenger_translations['main_menu'][passenger_language],
+                        reply_markup=reply_markup
+                    )
+                    logger.info(f"Sent driver cancellation notification and main menu to passenger {passenger.user.telegram_id}")
+                except Exception as e2:
+                    logger.error(f"Failed to send cancellation notification to passenger: {str(e2)}")
+
+            except Exception as e:
+                logger.error(f"Failed to send driver cancellation notification to passenger: {str(e)}")
 
             # Clear active ride
             context.user_data.pop('active_ride', None)
@@ -636,7 +702,6 @@ def show_driver_statistics(update: Update, context: CallbackContext) -> None:
 
         if stats:
             message = translations['earnings_summary'][language].format(
-                balance=stats['balance'],
                 total_rides=stats['total_rides'],
                 rating=stats['average_rating'],
                 today_earnings=stats['today_earnings'],

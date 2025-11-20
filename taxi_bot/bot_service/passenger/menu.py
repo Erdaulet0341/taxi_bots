@@ -45,8 +45,7 @@ def confirmation_menu(update: Update, context: CallbackContext, pickup, destinat
     message_text = translations['ride_confirmation'][language].format(
         pickup=pickup,
         destination=destination,
-        cost=cost,
-        duration=duration
+        cost=cost
     )
 
     update.message.reply_text(message_text, reply_markup=reply_markup)

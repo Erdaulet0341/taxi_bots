@@ -399,6 +399,11 @@ class RideNotification(models.Model):
 @receiver(post_save, sender=Ride)
 def notify_drivers_on_ride_creation(sender, instance, created, **kwargs):
     """Send notifications to nearby drivers when a new ride is created"""
+    # Check if we should skip notifications (set via update_fields or flag)
+    update_fields = kwargs.get('update_fields') or []
+    if 'skip_notifications' in update_fields:
+        return
+    
     if created and instance.status == 'requested':
         import logging
         logger = logging.getLogger(__name__)

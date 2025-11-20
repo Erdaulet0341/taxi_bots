@@ -138,7 +138,7 @@ class PassengerService:
 
     @staticmethod
     def create_ride_request(telegram_id, pickup_address, pickup_lat, pickup_lng,
-                           destination_address, destination_lat, destination_lng, custom_cost=None):
+                           destination_address, destination_lat, destination_lng, custom_cost=None, skip_notifications=False):
         """Create new ride request with custom or default pricing"""
         try:
             from .models import AppSettings
@@ -147,6 +147,7 @@ class PassengerService:
             print(f"[PASSENGER_LOG] Pickup: {pickup_address} ({pickup_lat}, {pickup_lng})")
             print(f"[PASSENGER_LOG] Destination: {destination_address} ({destination_lat}, {destination_lng})")
             print(f"[PASSENGER_LOG] Custom cost: {custom_cost}")
+            print(f"[PASSENGER_LOG] Skip notifications: {skip_notifications}")
 
             user = User.objects.get(telegram_id=telegram_id)
             print(f"[PASSENGER_LOG] Found user: {user}, phone verified: {user.is_phone_verified}")
@@ -167,17 +168,37 @@ class PassengerService:
 
             print(f"[PASSENGER_LOG] Creating ride object with estimated_cost: {estimated_cost}")
 
-            ride = Ride.objects.create(
-                passenger=passenger,
-                pickup_address=pickup_address,
-                pickup_lat=pickup_lat,
-                pickup_lng=pickup_lng,
-                destination_address=destination_address,
-                destination_lat=destination_lat,
-                destination_lng=destination_lng,
-                estimated_cost=estimated_cost,
-                current_cost=estimated_cost  # Set initial current cost
-            )
+            # Create ride - if skip_notifications, create with different status then update
+            if skip_notifications:
+                # Create ride with a temporary status to prevent signal
+                ride = Ride.objects.create(
+                    passenger=passenger,
+                    pickup_address=pickup_address,
+                    pickup_lat=pickup_lat,
+                    pickup_lng=pickup_lng,
+                    destination_address=destination_address,
+                    destination_lat=destination_lat,
+                    destination_lng=destination_lng,
+                    estimated_cost=estimated_cost,
+                    current_cost=estimated_cost,
+                    status='cancelled_by_system'  # Temporary status to prevent notification
+                )
+                # Now update to requested status - signal won't trigger because created=False
+                ride.status = 'requested'
+                ride.save(update_fields=['status'])
+            else:
+                # Normal creation - signal will trigger
+                ride = Ride.objects.create(
+                    passenger=passenger,
+                    pickup_address=pickup_address,
+                    pickup_lat=pickup_lat,
+                    pickup_lng=pickup_lng,
+                    destination_address=destination_address,
+                    destination_lat=destination_lat,
+                    destination_lng=destination_lng,
+                    estimated_cost=estimated_cost,
+                    current_cost=estimated_cost
+                )
 
             print(f"[PASSENGER_LOG] Ride created successfully with ID: {ride.id}")
             return ride, distance_km, int((distance_km / 30) * 60)  # estimated duration

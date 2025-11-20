@@ -38,12 +38,12 @@ class DriverAdmin(admin.ModelAdmin):
 
     def verify_drivers(self, request, queryset):
         from .tasks import notify_driver_verified
-        
+
         for driver in queryset:
             driver.status = 'verified'
             driver.is_verified = True
             driver.save()
-            
+
             # Send notification to driver
             try:
                 notify_driver_verified.delay(driver.user.telegram_id)
@@ -51,7 +51,7 @@ class DriverAdmin(admin.ModelAdmin):
                 # Fallback if Celery is not available
                 from .utils import send_driver_notification
                 send_driver_notification(driver.user.telegram_id, 'driver_verified', {})
-        
+
         self.message_user(request, f'{queryset.count()} drivers verified successfully.')
 
     verify_drivers.short_description = 'Verify selected drivers'
@@ -78,7 +78,7 @@ class DriverDocumentAdmin(admin.ModelAdmin):
     search_fields = ('driver__user__full_name', 'document_number')
     readonly_fields = ('created_at', 'updated_at', 'image_preview')
     actions = ['approve_documents', 'reject_documents']
-    
+
     fieldsets = (
         ('Document Info', {
             'fields': ('driver', 'document_type', 'document_number', 'status')
@@ -107,12 +107,12 @@ class DriverDocumentAdmin(admin.ModelAdmin):
     def approve_documents(self, request, queryset):
         from django.utils import timezone
         from .tasks import notify_driver_document_approved
-        
+
         for document in queryset:
             document.status = 'approved'
             document.verified_at = timezone.now()
             document.save()
-            
+
             # Send notification to driver
             try:
                 notify_driver_document_approved.delay(document.driver.user.telegram_id, document.document_type)
@@ -122,18 +122,18 @@ class DriverDocumentAdmin(admin.ModelAdmin):
                 send_driver_notification(document.driver.user.telegram_id, 'document_approved', {
                     'document_type': document.get_document_type_display()
                 })
-        
+
         self.message_user(request, f'{queryset.count()} documents approved successfully.')
 
     approve_documents.short_description = 'Approve selected documents'
 
     def reject_documents(self, request, queryset):
         from .tasks import notify_driver_document_rejected
-        
+
         for document in queryset:
             document.status = 'rejected'
             document.save()
-            
+
             # Send notification to driver
             try:
                 notify_driver_document_rejected.delay(document.driver.user.telegram_id, document.document_type)
@@ -143,7 +143,7 @@ class DriverDocumentAdmin(admin.ModelAdmin):
                 send_driver_notification(document.driver.user.telegram_id, 'document_rejected', {
                     'document_type': document.get_document_type_display()
                 })
-        
+
         self.message_user(request, f'{queryset.count()} documents rejected successfully.')
 
     reject_documents.short_description = 'Reject selected documents'
@@ -152,7 +152,7 @@ class DriverDocumentAdmin(admin.ModelAdmin):
 @admin.register(Ride)
 class RideAdmin(admin.ModelAdmin):
     list_display = ('id', 'passenger', 'driver', 'status', 'estimated_cost', 'final_cost', 'created_at')
-    list_filter = ('status', 'created_at')
+    list_filter = ('status', 'created_at', 'driver__user__full_name')
     search_fields = ('passenger__user__full_name', 'driver__user__full_name', 'pickup_address', 'destination_address')
     readonly_fields = ('id', 'created_at', 'accepted_at', 'started_at', 'completed_at', 'cancelled_at')
 
@@ -207,7 +207,7 @@ class AppSettingsAdmin(admin.ModelAdmin):
     list_filter = ('key', 'updated_at')
     search_fields = ('key', 'description')
     readonly_fields = ('created_at', 'updated_at')
-    
+
     fieldsets = (
         ('Setting Info', {
             'fields': ('key', 'value', 'description')
@@ -216,7 +216,7 @@ class AppSettingsAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at')
         }),
     )
-    
+
     def has_delete_permission(self, request, obj=None):
         # Prevent deletion of critical settings
         return False
@@ -228,7 +228,7 @@ class RideNotificationAdmin(admin.ModelAdmin):
     list_filter = ('created_at', 'ride__status')
     search_fields = ('ride__id', 'driver_telegram_id', 'message_id')
     readonly_fields = ('ride', 'driver_telegram_id', 'message_id', 'created_at')
-    
+
     fieldsets = (
         ('Notification Info', {
             'fields': ('ride', 'driver_telegram_id', 'message_id')
@@ -237,11 +237,11 @@ class RideNotificationAdmin(admin.ModelAdmin):
             'fields': ('created_at',)
         }),
     )
-    
+
     def has_add_permission(self, request):
         # Prevent manual creation of notifications
         return False
-    
+
     def has_change_permission(self, request, obj=None):
         # Prevent editing of notifications
         return False

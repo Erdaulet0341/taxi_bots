@@ -64,12 +64,10 @@ def handle_history(update: Update, context: CallbackContext) -> int:
     if rides:
         history_message = f"📋 {translations['ride_history'][language]}\n\n"
         for i, ride in enumerate(rides, 1):
-            status_text = {
-                'requested': '📝 Запрошено' if language == 'rus' else '📝 Сұралған',
-                'assigned': '👨‍🚗 Водитель назначен' if language == 'rus' else '👨‍🚗 Жүргізуші тағайындалды',
-                'completed': '✅ Завершено' if language == 'rus' else '✅ Аяқталды',
-                'cancelled': '❌ Отменено' if language == 'rus' else '❌ Болдырылды'
-            }.get(ride.status, ride.status)
+            # Get status translation from dictionary
+            status_translations = translations.get('ride_status', {})
+            status_dict = status_translations.get(ride.status, {})
+            status_text = status_dict.get(language, ride.status)
 
             history_message += f"{i}. {ride.created_at.strftime('%d.%m.%Y %H:%M')} - {status_text}\n"
 

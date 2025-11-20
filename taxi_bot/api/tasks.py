@@ -105,8 +105,7 @@ def send_driver_notification(driver_telegram_id, ride, distance_km):
         message = translations['new_ride_request'][language].format(
             pickup=pickup_address,
             destination=destination_address,
-            cost=int(ride.display_cost),
-            distance=round(distance_km, 1) if distance_km > 0 else "N/A"
+            cost=int(ride.display_cost)
         )
 
         # Create inline keyboard
@@ -158,39 +157,9 @@ def send_driver_notification(driver_telegram_id, ride, distance_km):
 def send_passenger_notification(passenger_telegram_id, driver):
     """Send Telegram notification to passenger"""
     try:
-        from telegram import Bot
-        from bot_service.passenger.dictionary import translations
-        from api.models import User
-
-        # Get bot token
-        bot_token = os.getenv('TG_BOT_TOKEN_PASSENGER')
-        if not bot_token:
-            logger.error("Passenger bot token not found")
-            return False
-
-        bot = Bot(token=bot_token)
-
-        # Get passenger language
-        try:
-            passenger_user = User.objects.get(telegram_id=str(passenger_telegram_id))
-            language = passenger_user.language
-        except:
-            language = 'kaz'
-
-        # Create driver assignment message
-        message = translations['driver_assigned'][language].format(
-            driver_name=driver.user.full_name,
-            rating=driver.average_rating,
-            car=f"{driver.vehicle.make} {driver.vehicle.model}" if driver.vehicle else "N/A",
-            phone=driver.user.phone_number
-        )
-
-        # Send notification
-        bot.send_message(
-            chat_id=passenger_telegram_id,
-            text=message
-        )
-
+        # Use the function from passenger bot that properly handles button updates
+        from bot_service.passenger.main import notify_passenger_driver_assigned
+        notify_passenger_driver_assigned(passenger_telegram_id, driver)
         return True
 
     except Exception as e:
@@ -521,8 +490,7 @@ def send_boosted_ride_notification(driver_telegram_id, ride, distance_km):
             pickup=pickup_address,
             destination=destination_address,
             cost=int(ride.display_cost),
-            boosts=ride.fare_boosts,
-            distance=round(distance_km, 1) if distance_km > 0 else "N/A"
+            boosts=ride.fare_boosts
         )
 
         # Create inline keyboard

@@ -126,24 +126,20 @@ def notify_passenger_driver_assigned(passenger_telegram_id, driver):
             phone=driver.user.phone_number
         )
 
-        # Send notification
+        # Send notification and remove all buttons immediately (no buttons until driver starts ride)
+        from telegram import ReplyKeyboardRemove
+        
         updater.bot.send_message(
             chat_id=passenger_telegram_id,
-            text=message
+            text=message,
+            reply_markup=ReplyKeyboardRemove()
         )
 
-        # Update buttons - remove "increase cost" and show only "cancel" and "SOS"
-        keyboard = [
-            [KeyboardButton(translations['buttons']['cancel_ride'][language])],
-            [KeyboardButton(translations['buttons']['sos'][language])]
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-        # Send button update message
+        # Send driver enroute message without buttons (SOS will appear after driver starts ride)
         updater.bot.send_message(
             chat_id=passenger_telegram_id,
             text=translations['driver_enroute'][language],
-            reply_markup=reply_markup
+            reply_markup=ReplyKeyboardRemove()
         )
 
         print(f"Sent driver assignment notification to passenger {passenger_telegram_id}")
@@ -213,13 +209,14 @@ def notify_passenger_ride_started(passenger_telegram_id, driver_name, driver_pho
 def notify_passenger_with_rating(passenger_telegram_id, message, ride_id, language='kaz'):
     """Send ride completion notification with rating buttons to passenger"""
     try:
-        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+        from telegram import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
         from bot_service.passenger.dictionary import translations
 
-        # Send completion message first
+        # Send completion message first and remove SOS button
         updater.bot.send_message(
             chat_id=passenger_telegram_id,
-            text=message
+            text=message,
+            reply_markup=ReplyKeyboardRemove()
         )
 
         # Create rating buttons

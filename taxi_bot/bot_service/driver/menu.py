@@ -129,13 +129,11 @@ def ride_management_menu(update: Update, context: CallbackContext, ride_status: 
         ]
     elif ride_status == 'driver_arrived':
         keyboard = [
-            [KeyboardButton(translations['buttons']['start_ride'][language])],
-            [KeyboardButton(translations['buttons']['cancel_ride'][language])]
+            [KeyboardButton(translations['buttons']['start_ride'][language])]
         ]
     elif ride_status == 'in_progress':
         keyboard = [
-            [KeyboardButton(translations['buttons']['complete_ride'][language])],
-            [KeyboardButton(translations['buttons']['sos'][language])]
+            [KeyboardButton(translations['buttons']['complete_ride'][language])]
         ]
     else:
         keyboard = [

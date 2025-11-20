@@ -119,7 +119,6 @@ def handle_statistics(update: Update, context: CallbackContext) -> int:
 📊 {summary}
         """.strip().format(
             summary=translations['earnings_summary'][language].format(
-                balance=earnings_data['balance'],
                 total_rides=earnings_data['total_rides'],
                 rating=earnings_data['average_rating'],
                 today_earnings=int(earnings_data['today_earnings']),

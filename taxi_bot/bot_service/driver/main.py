@@ -117,8 +117,7 @@ def notify_driver_about_ride(driver_telegram_id, ride, distance_km):
         message = translations['new_ride_request'][language].format(
             pickup=pickup_address,
             destination=destination_address,
-            cost=int(ride.estimated_cost),
-            distance=round(distance_km, 1)
+            cost=int(ride.estimated_cost)
         )
 
         # Create inline keyboard for accept/reject
